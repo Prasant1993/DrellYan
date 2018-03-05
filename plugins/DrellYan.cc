@@ -199,8 +199,8 @@ DrellYan::DrellYan(const edm::ParameterSet& iConfig):
   Electron_charge  = eleDir->make<TH1D>("Electron_Charge", "Electron charge", 100, -2, 2);
   E_Tag_charge  = eleDir->make<TH1D>("e_tagcharge", "Tag Electron charge", 100, -2, 2);
   E_Probe_charge  = eleDir->make<TH1D>("e_probecharge", "Probe Electron charge", 100, -2, 2);
-  E_Tag_pdgId  = muDir->make<TH1D>("e_Tag_pdgId", "Tag Electron pdgId", 100, -15, 15);
-  E_Tag_pdgId  = muDir->make<TH1D>("e_Tag_pdgId", "Probe Electron pdgId", 100, -15, 15);
+  E_Tag_pdgId  = eleDir->make<TH1D>("e_Tag_pdgId", "Tag Electron pdgId", 100, -15, 15);
+  E_Probe_pdgId  = eleDir->make<TH1D>("e_Probe_pdgId", "Probe Electron pdgId", 100, -15, 15);
  
 
 
