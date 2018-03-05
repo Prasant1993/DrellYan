@@ -1,0 +1,44 @@
+Lxplus batch submission:
+chmod 744 myjob.sh
+bsub -q 1nh -J job1 < myjob.sh
+bjobs
+bkill jobnumber 
+cd LSFJOB_jobnumber
+more STDOUT
+
+
+Crab job submission:
+
+for tcsh shell
+source /cvmfs/cms.cern.ch/crab3/crab.csh
+source /cvmfs/cms.cern.ch/cmsset_default.csh
+
+for sh shell
+
+source /cvmfs/cms.cern.ch/crab3/crab.sh
+source /cvmfs/cms.cern.ch/cmsset_default.sh
+
+For Crab job submit
+
+voms-proxy-init -voms cms -valid 192:00
+voms-proxy-info -all
+crab checkusername
+crab checkwrite --site=T2_IN_TIFR
+
+crab submit -c crabconfig.py --dryrun
+crab submit -c crabconfig.py 
+crab status -d crab_projects/crab_tutorial_MC_analysis_test1
+crab status -d crab_projects/crab_tutorial_MC_analysis_test1 --long
+crab resubmit -d crab3_projects/crab_tutorial_mc_analysis/
+crab kill -d crab3_projects/crab_tutorial_mc_analysis/
+
+output:
+/eos/uscms/store/user/prout
+#retrieving output to your local area
+crab getoutput -d crab_projects/crab_tutorial_May2015_MC_analysis --jobids 11
+crab getlog -d crab_projects/crab_tutorial_May2015_MC_analysis --jobids 1,5
+tar -zxvf cmsRun_1.log.tar.gz 
+
+Twiki:
+https://twiki.cern.ch/twiki/bin/viewauth/CMS/CRAB3CheatSheet
+https://twiki.cern.ch/twiki/bin/view/CMSPublic/WorkBookCRAB3Tutorial
