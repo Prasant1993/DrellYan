@@ -10,5 +10,6 @@ demo = cms.EDAnalyzer('DrellYan',
                       tauSrc = cms.InputTag('slimmedTaus'), 
                       isolatedtrackSrc = cms.InputTag('isolatedTracks'),
                       METSrc = cms.InputTag('slimmedMETs'),       
-                      JETSrc = cms.InputTag('slimmedJets')
+                      JETSrc = cms.InputTag('slimmedJets'),
+                      genparticleSrc = cms.InputTag('prunedGenParticles')
 )

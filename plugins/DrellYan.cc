@@ -29,14 +29,14 @@
 
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
 #include "FWCore/MessageLogger/interface/MessageLogger.h"
-
+#include "FWCore/Utilities/interface/InputTag.h"
 #include "FWCore/ServiceRegistry/interface/Service.h"
 #include "CommonTools/UtilAlgos/interface/TFileService.h"
 #include "TH1.h"
 #include "TH2.h"
 #include "TLorentzVector.h"
 #include "TVector2.h"
-
+#include "Math/VectorUtil.h"
 //header file for taus
 #include "DataFormats/TauReco/interface/BaseTau.h"
 #include "DataFormats/TauReco/interface/BaseTauFwd.h"
@@ -75,8 +75,8 @@
 // header for Jet & MET/////////////////////////////////////
 #include "DataFormats/JetReco/interface/Jet.h"
 #include "DataFormats/METReco/interface/MET.h"
-
-
+#include "DataFormats/HepMCCandidate/interface/GenParticle.h"
+#include "TMath.h"
 //
 // class declaration
 //
@@ -99,9 +99,10 @@ class DrellYan : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
        P.SetPtEtaPhiE(obj.pt(),obj.eta(),obj.phi(),obj.energy());
        return P;
       }
-      void selectMuon(); 
+      void selectMuon();
+      void select4Mu(); 
       void selectElectron();
-
+      
    private:
       virtual void beginJob() override;
       virtual void analyze(const edm::Event&, const edm::EventSetup&) override;
@@ -111,6 +112,7 @@ class DrellYan : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
   const edm::EDGetTokenT<reco::VertexCollection> vertexToken_;
   const edm::EDGetTokenT<pat::MuonCollection> muonToken_;
   const edm::EDGetTokenT<pat::ElectronCollection> electronToken_;
+  const edm::EDGetTokenT<reco::GenParticleCollection> genparticleToken_;
   const edm::EDGetTokenT<pat::IsolatedTrackCollection> isolatedtrackToken_;
   const edm::EDGetTokenT<pat::TauCollection> tauToken_;
   const edm::EDGetTokenT<pat::PhotonCollection> photonToken_;
@@ -131,10 +133,16 @@ class DrellYan : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
   TH1D *demoHisto_2;  TH1D *Muon_Eta; TH1D *Jet_pT;         TH1D *Electron_InVMass; TH1D *E_Probe_pdgId;
   TH1D *demoHisto_3;  TH1D *Muon_Phi;  TH1D *MET_pT;        TH1D *E_Tag_charge;     TH1D *M_Tag_pdgId;
   TH1D *demoHisto_4;  TH1D *Muon_charge; TH1D *Electron_pT;  TH1D *E_Probe_charge;  TH1D *M_Probe_pdgId;
-  TH1D *demoHisto_5;  TH1D *Muon_InVMass; TH1D *Electron_Eta; TH1D *MuonpT_barrel; 
+  TH1D *demoHisto_5;  TH1D *Muon_InVMass_all_probe; TH1D *Electron_Eta; TH1D *MuonpT_barrel; 
   TH1D *demoHisto_6;  TH1D *M_Tag_charge; TH1D *Electron_Phi; TH1D *MuonpT_endcap;
+  TH1D *genPt_el;     TH1D *Muon_InVMass_passing_probe; TH1D *Muon_InVMass_failing_probe;
+  TH1D *genEta_el;    TH1D *h4MuInvMass;
+  TH1D *genPhi_el;
+  TH1D *DeltaPhi_el_gen;
   std::vector<pat::Muon> selectedMu_;
+  std::vector<pat::Muon> selected4Mu_;
   std::vector<pat::Electron> selectedElectron_;
+  std::vector<reco::GenParticle>selectedGenElectron_;
 };
 
 //
@@ -152,6 +160,7 @@ DrellYan::DrellYan(const edm::ParameterSet& iConfig):
   vertexToken_(consumes<reco::VertexCollection>(iConfig.getParameter<edm::InputTag>("vertexSrc"))),
   muonToken_(consumes<pat::MuonCollection>(iConfig.getParameter<edm::InputTag>("muonSrc"))),
   electronToken_(consumes<pat::ElectronCollection>(iConfig.getParameter<edm::InputTag>("electronSrc"))),
+  genparticleToken_(consumes<reco::GenParticleCollection>(iConfig.getParameter<edm::InputTag>("genparticleSrc"))),
   isolatedtrackToken_(consumes<pat::IsolatedTrackCollection>(iConfig.getParameter<edm::InputTag>("isolatedtrackSrc"))),
   tauToken_(consumes<pat::TauCollection>(iConfig.getParameter<edm::InputTag>("tauSrc"))),
   photonToken_(consumes<pat::PhotonCollection>(iConfig.getParameter<edm::InputTag>("photonSrc"))),
@@ -171,7 +180,7 @@ DrellYan::DrellYan(const edm::ParameterSet& iConfig):
   jetDir = new TFileDirectory(outfile->mkdir("Jet"));
   metDir = new TFileDirectory(outfile->mkdir("MET"));
   isolatedTrackDir = new TFileDirectory(outfile->mkdir("IsolatedTracks"));
-
+  
 
   demoHisto_1 = eleDir->make<TH1D>("electrons", "Electrons", 100, 0, 20);
   demoHisto_2 = vtxDir->make<TH1D>("primaryVertices", "PrimaryVertices", 100, 0, 50);
@@ -185,12 +194,16 @@ DrellYan::DrellYan(const edm::ParameterSet& iConfig):
 
   Muon_Eta     = muDir->make<TH1D>("MUon_Eta", "Muon Eta", 100, -3.0, 3.0);
   Muon_Phi     = muDir->make<TH1D>("Muon_Phi", "Muon phi", 100, -3.0, 3.0);
-  Muon_InVMass = muDir->make<TH1D>("Inv_Mass_Muon", "InV mass (Z -> mumu)", 100, 70.0, 110.0);
+  Muon_InVMass_all_probe = muDir->make<TH1D>("Inv_Mass_Muon_all_probe", "InV mass (Z -> mumu)", 100, 70.0, 110.0);
+  Muon_InVMass_passing_probe = muDir->make<TH1D>("Inv_Mass_Muon_passing_probe", "InV mass (Z -> mumu)", 100, 70.0, 110.0);
+  Muon_InVMass_failing_probe = muDir->make<TH1D>("Inv_Mass_Muon_failing_probe", "InV mass (Z -> mumu)", 100, 70.0, 110.0);
   Muon_charge  = muDir->make<TH1D>("Muon_Charge", "Muon charge", 100, -2, 2);
   M_Tag_charge  = muDir->make<TH1D>("M_tagcharge", "Tag Muon charge", 100, -2, 2);
   M_Probe_charge  = muDir->make<TH1D>("M_probecharge", "Probe Muon charge", 100, -2, 2);
   M_Tag_pdgId  = muDir->make<TH1D>("Muon_Tag_pdgId", "Tag Muon pdgId", 100, -15, 15);
   M_Probe_pdgId  = muDir->make<TH1D>("Muon_Probe_pdgId", "Probe Muon pdgId", 100, -15, 15);
+  h4MuInvMass = muDir->make<TH1D>("InvMass4MuSystem","Invariant mass of the 4 muons system",200,0,500);
+
 
   Electron_pT     = eleDir->make<TH1D>("Electron_pT", "Electron pT", 100, 0, 100);
   Electron_Eta     = eleDir->make<TH1D>("Electron_Eta", "Electron Eta", 100, -3.0, 3.0);
@@ -201,13 +214,18 @@ DrellYan::DrellYan(const edm::ParameterSet& iConfig):
   E_Probe_charge  = eleDir->make<TH1D>("e_probecharge", "Probe Electron charge", 100, -2, 2);
   E_Tag_pdgId  = eleDir->make<TH1D>("e_Tag_pdgId", "Tag Electron pdgId", 100, -15, 15);
   E_Probe_pdgId  = eleDir->make<TH1D>("e_Probe_pdgId", "Probe Electron pdgId", 100, -15, 15);
- 
-
-
+  
   Jet_pT     = jetDir->make<TH1D>("JET_pT", "jet pT", 100, 0, 1000);
   MET_pT     = metDir->make<TH1D>("MET_pT", "Met pT", 100, 0, 1000);
  
+  genPt_el = eleDir->make<TH1D>("Gen_pT", "Gen pT", 20, 0, 100);
+  genEta_el = eleDir->make<TH1D>("Gen_Eta", "Gen Eta", 30, -3., 3.);
+  genPhi_el = eleDir->make<TH1D>("Gen_Phi", "Gen Phi", 35, -3.5, 3.5); 
+  DeltaPhi_el_gen = eleDir->make<TH1D>("Gen_Phi_el", "Gen Phi matching electron", 35, -3.5,3.5 ); 
+
+
 }
+
 
 
 
@@ -232,6 +250,7 @@ DrellYan::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 
   selectedMu_.clear();
   selectedElectron_.clear();
+  selected4Mu_.clear();
   //using namespace edm;
   ///////////primary vertices////////////////////////////////////////////////////////////////////////
   std::cout<< "-------------------- primary verices Information-------------------------------------------------"<< std::endl;
@@ -248,10 +267,31 @@ DrellYan::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
  ////////////  electrons /////////////////////////////////////////////////////////////////////////////
 
   std::cout<< "-------------------- Electron Information-------------------------------------------------"<< std::endl;
+  // get electron collection
   edm::Handle<pat::ElectronCollection> electrons;
   iEvent.getByToken(electronToken_, electrons);
+  // get generator particle collection
+  edm::Handle<reco::GenParticleCollection> particles;
+  iEvent.getByToken(genparticleToken_, particles);
+
   demoHisto_1->Fill(electrons->size());
+
+  for(const reco::GenParticle &part : *particles){
+    const int pdgid = std::fabs(part.pdgId());
+    if(part.status()==1 && pdgid ==11 ){
+      genPt_el ->Fill( part.pt()  );
+      genEta_el->Fill( part.eta() );
+      genPhi_el->Fill( part.phi() );
+           
+    }
+   
+  }
+
+ 
+   
+  
   for(const pat::Electron &el : *electrons){
+  
     Electron_charge->Fill(el.charge());
     Electron_pT->Fill(el.pt());
     Electron_Eta->Fill(el.eta());
@@ -296,20 +336,22 @@ DrellYan::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
     double relIso = (ecalIso + hcalIso + trkIso) / et;
     std::cout << "relative isolation of electron = " << relIso  << std::endl; 
     ///////////////////Z mass reconstruction : electron selection///////////////////////////////////////
-    if(!el.isPF()) continue;
-    if(el.pt()<= 5.) continue;
+ 
     reco::SuperClusterRef ele_SC = el.superCluster();
     double eta = std::fabs(ele_SC->eta());
     double scTheta = (2*atan(exp(-ele_SC->eta())));
     double scEt = ele_SC->energy()*sin(scTheta);
 
     ///////////////////////////////////checking////////////////////////////////////
+    if(!el.isPF()) continue;
+    if(el.pt()<= 5.) continue;
+ 
     if ((eta > 1.479 && eta < 1.566) || eta > 2.5) continue;
-    if(missingHits > 1 && isConv) continue;
+    // if(missingHits > 1 && isConv) continue;
     //std::cout << "missing hits of electron = " << missingHits  << "----" << " Electron Conversion = " << isConv << std::endl;
     ///////////////////////////////////////////////////////////////////////////
-    if(!(std::fabs(Deta) < 0.01) && !(std::fabs(Dphi) < 0.8)) continue; 
-    if(!(sietaieta < 0.01) && !(relIso < 0.1)) continue; 
+    // if(!(std::fabs(Deta) < 0.01) && !(std::fabs(Dphi) < 0.8)) continue; 
+    // if(!(sietaieta < 0.01) && !(relIso < 0.1)) continue; 
     selectedElectron_.push_back(el);
 
   }
@@ -378,24 +420,36 @@ DrellYan::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
     // std::cout << "minPixelHits = " << minPixelHits << std::endl;
     // std::cout << "minValidMuonHits = " << minValidMuonHits << std::endl;
 
+    if(mu.isGlobalMuon()){
 
+      if(mu.pt() >= 20 ) 
+	selected4Mu_.push_back(mu);
 
+    }
 
+    
  
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    // selecting muons pT > 5, |eta| < 2.4, dxy< 0.5, dz < 1, isGlobalMuon ///////////////////////
+    //gen match muon and  selecting muons pT > 5, |eta| < 2.4, dxy< 0.5, dz < 1, isGlobalMuon ///////////////////////
+    if(mu.genLepton() != 0){
+    double reso = (mu.pt() - mu.genLepton()->pt())/mu.genLepton()->pt();
+    float deltaPhi = ROOT::Math::VectorUtil::DeltaPhi(mu.genLepton()->p4(), mu.p4());
+    if(deltaPhi > 0.2) continue;
+    std::cout<< "deltaph between reco & Mctruth muon =" << deltaPhi << std::endl;
     if(mu.pt() <= 5.) continue;
     if(std::fabs(mu.eta()) > 2.4) continue;
-
+ 
     if(std::fabs(dxyWrtPV_mu) >= 0.5) continue;
     if(std::fabs(dzWrtPV_mu) >= 1.) continue;
 
-    if(!mu.isGlobalMuon() && !mu.isPFMuon() && !mu.isTrackerMuon()) continue;     
+    if(!mu.isGlobalMuon() && !mu.isPFMuon() && !mu.isTrackerMuon()) continue;
+    //if(!mu.isGlobalMuon()) continue;     
       selectedMu_.push_back(mu);
-    
+    }
   }
     if(selectedMu_.size() > 2) selectMuon();
+    if(selected4Mu_.size() == 4) select4Mu();
          
   
     std::cout<< "-------------------- End-------------------------------------------------"<< std::endl;
@@ -501,25 +555,38 @@ DrellYan::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 void
 DrellYan::selectMuon(){
   for(unsigned int i = 0; i < selectedMu_.size(); i++) {
+    // Tag selection pt > 30 , relIso < 0.35 
+     
+    double Tag_Muon_relIso = (selectedMu_[i].pfIsolationR03().sumChargedHadronPt + std::max(selectedMu_[i].pfIsolationR03().sumNeutralHadronEt + selectedMu_[i].pfIsolationR03().sumPhotonEt - selectedMu_[i].pfIsolationR03().sumPUPt/2.0, 0.0))/(selectedMu_[i].pt()); 
+      if(Tag_Muon_relIso >= 0.35 ) continue;
       if(selectedMu_[i].pt() <= 20.) continue;
-       
+
       TLorentzVector Tag_Muon = getP4(selectedMu_[i]);
       int mu_tagcharge = selectedMu_[i].charge();
       int mu_tag_pdgId = selectedMu_[i].pdgId();
-      for(unsigned int j = 0; j < selectedMu_.size(); j++) {
-     
+
+      for(unsigned int j = i+1; j < selectedMu_.size(); j++) {
+	// Probe selection relIso < 0.35, pt < = 50
+	double Probe_Muon_relIso = (selectedMu_[j].pfIsolationR03().sumChargedHadronPt + std::max(selectedMu_[j].pfIsolationR03().sumNeutralHadronEt + selectedMu_[j].pfIsolationR03().sumPhotonEt - selectedMu_[j].pfIsolationR03().sumPUPt/2.0, 0.0))/(selectedMu_[j].pt());
+	if(Probe_Muon_relIso >= 0.35 ) continue;
+
 	int mu_probecharge = selectedMu_[j].charge();
         int mu_probe_pdgId = selectedMu_[j].pdgId();
         if((mu_tagcharge + mu_probecharge != 0) || (mu_tag_pdgId + mu_probe_pdgId != 0)) continue;
-	M_Tag_pdgId->Fill(mu_tag_pdgId);
+          	
+        M_Tag_pdgId->Fill(mu_tag_pdgId);
 	M_Probe_pdgId->Fill(mu_probe_pdgId);
         M_Tag_charge->Fill(mu_tagcharge);
         M_Probe_charge->Fill(mu_probecharge);
         TLorentzVector Probe_Muon = getP4(selectedMu_[j]);
 	TLorentzVector TnP_Muon = (Tag_Muon + Probe_Muon);
 	if( TnP_Muon.M() <= 70. || TnP_Muon.M() >= 110. ) continue;
-	 Muon_InVMass->Fill(TnP_Muon.M());
-
+	  Muon_InVMass_all_probe->Fill(TnP_Muon.M());
+	  if(selectedMu_[j].pt() <= 50){
+	     Muon_InVMass_passing_probe->Fill(TnP_Muon.M());
+	  }  
+         else Muon_InVMass_failing_probe->Fill(TnP_Muon.M());
+	 
       }     
       
   }
@@ -532,7 +599,7 @@ DrellYan::selectMuon(){
 void
 DrellYan::selectElectron(){
   for(unsigned int k = 0; k < selectedElectron_.size(); k++) {
-    if(selectedElectron_[k].pt() <= 20.) continue;
+    //if(selectedElectron_[k].pt() <= 20.) continue;
 
     TLorentzVector Tag_Electron = getP4(selectedElectron_[k]);
     int el_tagcharge = selectedElectron_[k].charge();
@@ -555,6 +622,30 @@ DrellYan::selectElectron(){
 
   }
 }
+
+
+////////////////////////////////4 muon selectron //////////////////////////////////////////
+
+void
+DrellYan::select4Mu(){
+
+  if(selected4Mu_.size() == 4){
+    reco::Candidate::LorentzVector p4CM;
+    for (pat::MuonCollection::const_iterator MUON = selected4Mu_.begin();  MUON != selected4Mu_.end(); ++MUON){
+      p4CM = p4CM + MUON->p4();
+    }
+    h4MuInvMass->Fill(p4CM.mass());
+  }
+
+}
+
+
+
+
+
+
+
+
 
 
 
